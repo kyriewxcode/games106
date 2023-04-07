@@ -3,6 +3,7 @@ cmake_policy(VERSION 2.8)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 
 set(NAME games_106)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(${NAME})
 
