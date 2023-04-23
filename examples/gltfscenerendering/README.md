@@ -55,7 +55,7 @@ void VulkanglTFScene::loadImages(tinygltf::Model& input)
 struct Material 
 {
 	glm::vec4 baseColorFactor = glm::vec4(1.0f);
-	uint32_t baseColorTextureIndex;
+	uint32_t baseColorTexture;
 	uint32_t normalTextureIndex;
 	std::string alphaMode = "OPAQUE";
 	float alphaCutOff;
@@ -199,7 +199,7 @@ The normal maps are then bound to binding 1 via the material's descriptor set in
 ```cpp
 for (auto& material : glTFScene.materials) {
 	...
-	VkDescriptorImageInfo colorMap = glTFScene.getTextureDescriptor(material.baseColorTextureIndex);
+	VkDescriptorImageInfo colorMap = glTFScene.getTextureDescriptor(material.baseColorTexture);
 	VkDescriptorImageInfo normalMap = glTFScene.getTextureDescriptor(material.normalTextureIndex);
 	std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 		vks::initializers::writeDescriptorSet(material.descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, &colorMap),
