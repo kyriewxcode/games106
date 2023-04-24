@@ -20,7 +20,9 @@
 #include "glm/detail/type_mat.hpp"
 #include "glm/detail/type_vec.hpp"
 #include "glm/fwd.hpp"
+#include "vulkan/vulkan_core.h"
 #include <corecrt.h>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -38,6 +40,7 @@
 
 // Contains everything required to render a glTF model in Vulkan
 // This class is heavily simplified (compared to glTF's feature set) but retains the basic glTF structure
+
 class VulkanglTFModel
 {
 public:
@@ -93,6 +96,15 @@ public:
         Node* parent;
         std::vector<Node*> children;
         Mesh mesh;
+
+        struct ConstansData
+        {
+            glm::mat4 model;
+            glm::vec3 albedo;
+            float roughness;
+            float metallic;
+        };
+        ConstansData constansData;
 
         // HW1_START
         uint32_t index;
@@ -611,6 +623,26 @@ public:
             }
         }
     }
+
+    void updateNodeMaterial(const glm::vec3& albedo, const float roughness, const float metallic, VulkanglTFModel::Node* node)
+    {
+        node->constansData.albedo = albedo;
+        node->constansData.roughness = roughness;
+        node->constansData.metallic = metallic;
+
+        for (auto& child : node->children)
+        {
+            updateNodeMaterial(albedo, roughness, metallic, child);
+        }
+    }
+
+    void updateMaterial(const glm::vec3& albedo, const float roughness, const float metallic)
+    {
+        for (auto& node : nodes)
+        {
+            updateNodeMaterial(albedo, roughness, metallic, node);
+        }
+    }
     // HW1_END
 
     /*
@@ -631,8 +663,9 @@ public:
                 nodeMatrix = currentParent->matrix * nodeMatrix;
                 currentParent = currentParent->parent;
             }
+            node->constansData.model = nodeMatrix;
             // Pass the final matrix to the vertex shader using push constants
-            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
+            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Node::ConstansData), &node->constansData);
             for (VulkanglTFModel::Primitive& primitive : node->mesh.primitives)
             {
                 if (primitive.indexCount > 0)
@@ -670,20 +703,25 @@ class VulkanExample : public VulkanExampleBase
 {
 public:
     bool wireframe = false;
+    float* albedo = new float[] { 1.0f, 1.0f, 1.0f };
+    float roughness = 0.5f;
+    float metallic = 0.5f;
 
     VulkanglTFModel glTFModel;
 
-    struct ShaderData
+    // HW1 START
+    struct UBO
     {
         vks::Buffer buffer;
         struct Values
         {
             glm::mat4 projection;
-            glm::mat4 model;
+            glm::mat4 view;
             glm::vec4 lightPos = glm::vec4(5.0f, 5.0f, -5.0f, 1.0f);
-            glm::vec4 viewPos;
+            glm::vec3 cameraPos;
         } values;
-    } shaderData;
+    } ubo;
+    // HW1 END
 
     struct Pipelines
     {
@@ -725,7 +763,7 @@ public:
         vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.matrices, nullptr);
         vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.textures, nullptr);
 
-        shaderData.buffer.destroy();
+        ubo.buffer.destroy();
     }
 
     virtual void getEnabledFeatures()
@@ -917,7 +955,7 @@ public:
         VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
         // Descriptor set layout for passing matrices
-        VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+        VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
         VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
         // Descriptor set layout for passing material textures
@@ -927,7 +965,7 @@ public:
         std::array<VkDescriptorSetLayout, 2> setLayouts = { descriptorSetLayouts.matrices, descriptorSetLayouts.textures };
         VkPipelineLayoutCreateInfo pipelineLayoutCI = vks::initializers::pipelineLayoutCreateInfo(setLayouts.data(), static_cast<uint32_t>(setLayouts.size()));
         // We will use push constants to push the local matrices of a primitive to the vertex shader
-        VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), 0);
+        VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(VulkanglTFModel::Node::ConstansData), 0);
         // Push constant ranges are part of the pipeline layout
         pipelineLayoutCI.pushConstantRangeCount = 1;
         pipelineLayoutCI.pPushConstantRanges = &pushConstantRange;
@@ -936,7 +974,7 @@ public:
         // Descriptor set for scene matrices
         VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
         VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
-        VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor);
+        VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &ubo.buffer.descriptor);
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
         // Descriptor sets for materials
         for (auto& image : glTFModel.images)
@@ -976,8 +1014,8 @@ public:
         vertexInputStateCI.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
         const std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
-            loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
-            loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
+            loadShader(getAssetPath() + "homework/shaders/hlsl/homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+            loadShader(getAssetPath() + "homework/shaders/hlsl/homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
         };
 
         VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayout, renderPass, 0);
@@ -1011,21 +1049,26 @@ public:
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        &shaderData.buffer,
-        sizeof(shaderData.values)));
+        &ubo.buffer,
+        sizeof(ubo.values)));
 
         // Map persistent
-        VK_CHECK_RESULT(shaderData.buffer.map());
+        VK_CHECK_RESULT(ubo.buffer.map());
 
         updateUniformBuffers();
     }
 
     void updateUniformBuffers()
     {
-        shaderData.values.projection = camera.matrices.perspective;
-        shaderData.values.model = camera.matrices.view;
-        shaderData.values.viewPos = camera.viewPos;
-        memcpy(shaderData.buffer.mapped, &shaderData.values, sizeof(shaderData.values));
+        ubo.values.projection = camera.matrices.perspective;
+        ubo.values.view = camera.matrices.view;
+        ubo.values.cameraPos = camera.position;
+        // shaderData.values.viewPos = camera.viewPos;
+        memcpy(ubo.buffer.mapped, &ubo.values, sizeof(ubo.values));
+    }
+
+    void pushConstants()
+    {
     }
 
     void prepare()
@@ -1035,6 +1078,7 @@ public:
         prepareUniformBuffers();
         setupDescriptors();
         preparePipelines();
+        glTFModel.updateMaterial(glm::vec3(albedo[0], albedo[1], albedo[2]), roughness, metallic);
         prepared = true;
     }
 
@@ -1065,6 +1109,10 @@ public:
             if (overlay->checkBox("Wireframe", &wireframe))
             {
                 buildCommandBuffers();
+            }
+            if (overlay->colorPicker("Albedo", albedo) || overlay->sliderFloat("Roughness", &roughness, 0, 1) || overlay->sliderFloat("Metallic", &metallic, 0, 1))
+            {
+                glTFModel.updateMaterial(glm::vec3(albedo[0], albedo[1], albedo[2]), roughness, metallic);
             }
         }
     }

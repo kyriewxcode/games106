@@ -2,48 +2,45 @@
 
 struct VSInput
 {
-[[vk::location(0)]] float3 Pos : POSITION0;
-[[vk::location(1)]] float3 Normal : NORMAL0;
-[[vk::location(2)]] float2 UV : TEXCOORD0;
-[[vk::location(3)]] float3 Color : COLOR0;
+	[[vk::location(0)]] float3 Pos : POSITION0;
+	[[vk::location(1)]] float3 Normal : NORMAL0;
+	[[vk::location(2)]] float2 UV : TEXCOORD0;
 };
 
 struct UBO
 {
-	float4x4 projection;
-	float4x4 view;
-	float4 lightPos;
-	float4 viewPos;
+    float4x4 projection; // 投影矩阵
+    float4x4 view;       // 视图矩阵
+    float4 lightPos;     // 灯光位置
+    float3 cameraPos;    // 相机位置
 };
-
 cbuffer ubo : register(b0) { UBO ubo; }
 
-struct PushConsts {
-	float4x4 model;
+struct PushConsts
+{
+    float4x4 model;  // 模型矩阵
+    float3 albedo;   // 基本颜色
+    float roughness; // 粗糙度
+    float metallic;  // 金属度
 };
-[[vk::push_constant]] PushConsts primitive;
+[[vk::push_constant]] PushConsts material;
 
 struct VSOutput
 {
 	float4 Pos : SV_POSITION;
-[[vk::location(0)]] float3 Normal : NORMAL0;
-[[vk::location(1)]] float3 Color : COLOR0;
-[[vk::location(2)]] float2 UV : TEXCOORD0;
-[[vk::location(3)]] float3 ViewVec : TEXCOORD1;
-[[vk::location(4)]] float3 LightVec : TEXCOORD2;
+	[[vk::location(0)]] float3 WorldPos : POSITION;
+	[[vk::location(1)]] float3 Normal : NORMAL0;
+	[[vk::location(2)]] float2 UV : TEXCOORD0;
 };
 
 VSOutput main(VSInput input)
 {
 	VSOutput output = (VSOutput)0;
 	output.Normal = input.Normal;
-	output.Color = input.Color;
 	output.UV = input.UV;
-	output.Pos = mul(ubo.projection, mul(ubo.view, mul(primitive.model, float4(input.Pos.xyz, 1.0))));
-
-	float4 pos = mul(ubo.view, float4(input.Pos, 1.0));
+	float4 WorldPos = mul(material.model, float4(input.Pos.xyz, 1.0));
+	output.Pos = mul(ubo.projection, mul(ubo.view, WorldPos));
+	output.WorldPos = WorldPos.rgb;
 	output.Normal = mul((float3x3)ubo.view, input.Normal);
-	output.LightVec = ubo.lightPos.xyz - pos.xyz;
-	output.ViewVec = ubo.viewPos.xyz - pos.xyz;
 	return output;
 }
