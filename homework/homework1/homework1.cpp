@@ -106,13 +106,11 @@ public:
         };
         ConstansData constansData;
 
-        // HW1_START
         uint32_t index;
         glm::vec3 translation {};
         glm::vec3 scale { 1.0f };
         glm::quat rotation {};
         void updateMatrix() { matrix = glm::translate(glm::mat4(1.0f), translation) * glm::mat4(rotation) * glm::scale(glm::mat4(1.0f), scale); }
-        // HW1_END
 
         glm::mat4 matrix;
         ~Node()
@@ -124,7 +122,6 @@ public:
         }
     };
 
-    // HW1_START
     struct AnimationSampler
     {
         std::string interpolation;
@@ -146,7 +143,6 @@ public:
         float end = std::numeric_limits<float>::min();
         float currentTime = 0.0f;
     };
-    // HW1_END
 
     // A glTF material stores information in e.g. the texture that is attached to it and colors
     struct Material
@@ -179,10 +175,8 @@ public:
     std::vector<Material> materials;
     std::vector<Node*> nodes;
 
-    // HW1_START
     std::vector<Animation> animations;
     uint32_t activeAnimation = 0;
-    // HW1_END
 
     ~VulkanglTFModel()
     {
@@ -280,7 +274,6 @@ public:
         }
     }
 
-    // HW1_START
     Node* findNode(Node* parent, uint32_t index)
     {
         Node* nodeFound = nullptr;
@@ -402,19 +395,14 @@ public:
             }
         }
     }
-    // HW1_END
 
-    // HW1_START
     void loadNode(const tinygltf::Node& inputNode, uint32_t nodeIndex, const tinygltf::Model& input, VulkanglTFModel::Node* parent, std::vector<uint32_t>& indexBuffer, std::vector<VulkanglTFModel::Vertex>& vertexBuffer)
-    // HW1_END
     {
         VulkanglTFModel::Node* node = new VulkanglTFModel::Node {};
         node->matrix = glm::mat4(1.0f);
         node->parent = parent;
 
-        // HW1_START
         node->index = nodeIndex;
-        // HW1_END
 
         // Get the local node matrix
         // It's either made up from translation, rotation, scale or a 4x4 matrix
@@ -441,9 +429,7 @@ public:
         {
             for (size_t i = 0; i < inputNode.children.size(); i++)
             {
-                // HW1_START
                 loadNode(input.nodes[inputNode.children[i]], inputNode.children[i], input, node, indexBuffer, vertexBuffer);
-                // HW1_END
             }
         }
 
@@ -562,7 +548,6 @@ public:
         }
     }
 
-    // HW1_START
     void updateAnimation(float deltaTime)
     {
         if (activeAnimation > static_cast<uint32_t>(animations.size()) - 1)
@@ -579,8 +564,6 @@ public:
 
         for (auto& channel : animation.channels)
         {
-            std::cout << "This sample only supports linear interpolations\n";
-
             AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
             for (size_t i = 0; i < sampler.inputs.size() - 1; i++)
             {
@@ -643,7 +626,6 @@ public:
             updateNodeMaterial(albedo, roughness, metallic, node);
         }
     }
-    // HW1_END
 
     /*
         glTF rendering functions
@@ -709,7 +691,6 @@ public:
 
     VulkanglTFModel glTFModel;
 
-    // HW1 START
     struct UBO
     {
         vks::Buffer buffer;
@@ -721,7 +702,6 @@ public:
             glm::vec3 cameraPos;
         } values;
     } ubo;
-    // HW1 END
 
     struct Pipelines
     {
@@ -845,13 +825,9 @@ public:
             for (size_t i = 0; i < scene.nodes.size(); i++)
             {
                 const tinygltf::Node node = glTFInput.nodes[scene.nodes[i]];
-                // HW1_START
                 glTFModel.loadNode(node, i, glTFInput, nullptr, indexBuffer, vertexBuffer);
-                // HW1_END
             }
-            // HW1_START
             glTFModel.loadAnimations(glTFInput);
-            // HW1_END
         }
         else
         {
@@ -1084,17 +1060,13 @@ public:
 
     virtual void render()
     {
-        // HW1_START
         buildCommandBuffers();
-        // HW1_END
         renderFrame();
         if (camera.updated)
         {
             updateUniformBuffers();
         }
-        // HW1_START
         glTFModel.updateAnimation(frameTimer);
-        // HW1_END
     }
 
     virtual void viewChanged()
