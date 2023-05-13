@@ -1,5 +1,14 @@
 Texture2D textureColorMap : register(t0, space1);
+Texture2D textureMetallicRoughness : register(t1, space1);
+Texture2D textureNormalMap : register(t2, space1);
+Texture2D textureEmissive : register(t3, space1);
+Texture2D textureOcclusion : register(t4, space1);
+
 SamplerState samplerColorMap : register(s0, space1);
+SamplerState samplerMetallicRoughness : register(s1, space1);
+SamplerState samplerNormalMap : register(s2, space1);
+SamplerState samplerEmissive : register(s3, space1);
+SamplerState samplerOcclusion : register(s4, space1);
 
 struct UBO
 {
@@ -90,5 +99,5 @@ float4 main(VSOutput input) : SV_TARGET
     float3 color = ambient + specular;
     color = pow(color, float3(0.4545, 0.4545, 0.4545));
 
-    return float4(color, 1.0f);
+    return float4(textureColor, 1.0f);
 }
