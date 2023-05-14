@@ -97,6 +97,17 @@ public:
         std::vector<Primitive> primitives;
     };
 
+    struct ConstansData
+    {
+        glm::mat4 modelMatrix;
+        glm::vec3 baseColorFactor = glm::vec3(1.0f);
+        float roughnessFactor = 0.2f;
+        glm::vec3 emissiveFactor = glm::vec3(1.0f);
+        float metallicFactor = 11.0f;
+        glm::vec3 lightColor = glm::vec3(1.0f);
+        float lightIntensity = 1.0f;
+    } constansData;
+
     // A node represents an object in the glTF scene graph
     struct Node
     {
@@ -104,14 +115,7 @@ public:
         std::vector<Node*> children;
         Mesh mesh;
 
-        struct ConstansData
-        {
-            glm::mat4 model;
-            glm::vec3 albedo;
-            float roughness;
-            float metallic;
-        };
-        ConstansData constansData;
+        struct ConstansData constansData;
 
         uint32_t index;
         glm::vec3 translation {};
@@ -158,9 +162,9 @@ public:
     {
         // Material variables
         glm::vec4 baseColorFactor = glm::vec4(1.0f);
+        glm::vec3 emissiveFactor;
         float metallicFactor;
         float roughnessFactor;
-        glm::vec3 emissiveFactor;
 
         // Textures
         uint32_t baseColorTextureIndex;
@@ -195,7 +199,8 @@ public:
     std::vector<Texture> textures;
     std::vector<Material> materials;
     std::vector<Node*> nodes;
-    std::vector<vks::Texture2D> dummyBlacks;
+    vks::Texture2D dummyEmissive;
+    vks::Texture2D dummyAO;
 
     std::vector<Animation> animations;
     uint32_t activeAnimation = 0;
@@ -218,13 +223,17 @@ public:
             vkDestroySampler(vulkanDevice->logicalDevice, image.texture.sampler, nullptr);
             vkFreeMemory(vulkanDevice->logicalDevice, image.texture.deviceMemory, nullptr);
         }
-        for (vks::Texture2D dummyBlack : dummyBlacks)
-        {
-            vkDestroyImageView(vulkanDevice->logicalDevice, dummyBlack.view, nullptr);
-            vkDestroyImage(vulkanDevice->logicalDevice, dummyBlack.image, nullptr);
-            vkDestroySampler(vulkanDevice->logicalDevice, dummyBlack.sampler, nullptr);
-            vkFreeMemory(vulkanDevice->logicalDevice, dummyBlack.deviceMemory, nullptr);
-        }
+        dummyEmissive.destroy();
+        dummyAO.destroy();
+    }
+
+    vks::Texture2D getDummyTexture(uint8_t defaultValue)
+    {
+        vks::Texture2D dummyTexture;
+        std::vector<uint32_t> buffer(1 * 1 * 4, defaultValue);
+        VkDeviceSize bufferSize = static_cast<VkDeviceSize>(buffer.size());
+        dummyTexture.fromBuffer(buffer.data(), bufferSize, VK_FORMAT_R8G8B8A8_UNORM, 1, 1, vulkanDevice, copyQueue);
+        return dummyTexture;
     }
 
     /*
@@ -271,6 +280,8 @@ public:
                 delete[] buffer;
             }
         }
+        dummyEmissive = getDummyTexture(0);
+        dummyAO = getDummyTexture(255);
     }
 
     void loadTextures(tinygltf::Model& input)
@@ -299,14 +310,6 @@ public:
             materials[i].normalTextureIndex = glTFMaterial.normalTexture.index;
             materials[i].emissiveTextureIndex = glTFMaterial.emissiveTexture.index;
             materials[i].occlusionTextureIndex = glTFMaterial.occlusionTexture.index;
-        }
-        for (size_t i = 0; i < 5; i++)
-        {
-            vks::Texture2D dummyBlack;
-            std::vector<unsigned char> buffer(1 * 1 * 4, 0);
-            VkDeviceSize bufferSize = static_cast<VkDeviceSize>(buffer.size());
-            dummyBlack.fromBuffer(buffer.data(), bufferSize, VK_FORMAT_R8G8B8A8_UNORM, 1, 1, vulkanDevice, copyQueue);
-            dummyBlacks.push_back(dummyBlack);
         }
     }
 
@@ -643,26 +646,6 @@ public:
         }
     }
 
-    void updateNodeMaterial(const glm::vec3& albedo, const float roughness, const float metallic, VulkanglTFModel::Node* node)
-    {
-        node->constansData.albedo = albedo;
-        node->constansData.roughness = roughness;
-        node->constansData.metallic = metallic;
-
-        for (auto& child : node->children)
-        {
-            updateNodeMaterial(albedo, roughness, metallic, child);
-        }
-    }
-
-    void updateMaterial(const glm::vec3& albedo, const float roughness, const float metallic)
-    {
-        for (auto& node : nodes)
-        {
-            updateNodeMaterial(albedo, roughness, metallic, node);
-        }
-    }
-
     /*
         glTF rendering functions
     */
@@ -681,17 +664,24 @@ public:
                 nodeMatrix = currentParent->matrix * nodeMatrix;
                 currentParent = currentParent->parent;
             }
-            node->constansData.model = nodeMatrix;
+            node->constansData.modelMatrix = nodeMatrix;
             // Pass the final matrix to the vertex shader using push constants
-            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Node::ConstansData), &node->constansData);
             for (VulkanglTFModel::Primitive& primitive : node->mesh.primitives)
             {
                 if (primitive.indexCount > 0)
                 {
+                    Material& material = materials[primitive.materialIndex];
+                    node->constansData.baseColorFactor = constansData.baseColorFactor;
+                    node->constansData.emissiveFactor = constansData.emissiveFactor;
+                    node->constansData.roughnessFactor = constansData.roughnessFactor;
+                    node->constansData.metallicFactor = constansData.metallicFactor;
+                    node->constansData.lightColor = constansData.lightColor;
+                    node->constansData.lightIntensity = constansData.lightIntensity;
+                    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ConstansData), &node->constansData);
                     // Get the texture index for this primitive
                     // VulkanglTFModel::Texture texture = textures[materials[primitive.materialIndex].baseColorTextureIndex];
                     // Bind the descriptor for the current primitive's texture
-                    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1, 1, &materials[primitive.materialIndex].descriptorSet, 0, nullptr);
+                    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1, 1, &material.descriptorSet, 0, nullptr);
                     vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, primitive.firstIndex, 0, 0);
                 }
             }
@@ -721,9 +711,6 @@ class VulkanExample : public VulkanExampleBase
 {
 public:
     bool wireframe = false;
-    float* albedo = new float[] { 1.0f, 1.0f, 1.0f };
-    float roughness = 0.5f;
-    float metallic = 0.5f;
 
     VulkanglTFModel glTFModel;
 
@@ -734,8 +721,8 @@ public:
         {
             glm::mat4 projection;
             glm::mat4 view;
-            glm::vec4 lightPos = glm::vec4(5.0f, 5.0f, -5.0f, 1.0f);
-            glm::vec3 cameraPos;
+            glm::vec4 lightPos = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
+            glm::vec3 viewPos;
         } values;
     } ubo;
 
@@ -992,7 +979,7 @@ public:
             std::array<VkDescriptorSetLayout, 2> setLayouts = { descriptorSetLayouts.matrices, descriptorSetLayouts.textures };
             VkPipelineLayoutCreateInfo pipelineLayoutCI = vks::initializers::pipelineLayoutCreateInfo(setLayouts.data(), static_cast<uint32_t>(setLayouts.size()));
             // We will use push constants to push the local matrices of a primitive to the vertex shader
-            VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(VulkanglTFModel::Node::ConstansData), 0);
+            VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(VulkanglTFModel::ConstansData), 0);
             // Push constant ranges are part of the pipeline layout
             pipelineLayoutCI.pushConstantRangeCount = 1;
             pipelineLayoutCI.pPushConstantRanges = &pushConstantRange;
@@ -1018,27 +1005,15 @@ public:
                 {
                     descriptorImageInfos[0] = &glTFModel.images[material.baseColorTextureIndex].texture.descriptor;
                 }
-                else
-                {
-                    descriptorImageInfos[0] = &glTFModel.dummyBlacks[0].descriptor;
-                }
 
                 if (material.metallicRoughnessTextureIndex != -1)
                 {
                     descriptorImageInfos[1] = &glTFModel.images[material.metallicRoughnessTextureIndex].texture.descriptor;
                 }
-                else
-                {
-                    descriptorImageInfos[1] = &glTFModel.dummyBlacks[1].descriptor;
-                }
 
                 if (material.normalTextureIndex != -1)
                 {
                     descriptorImageInfos[2] = &glTFModel.images[material.normalTextureIndex].texture.descriptor;
-                }
-                else
-                {
-                    descriptorImageInfos[2] = &glTFModel.dummyBlacks[2].descriptor;
                 }
 
                 if (material.emissiveTextureIndex != -1)
@@ -1047,7 +1022,7 @@ public:
                 }
                 else
                 {
-                    descriptorImageInfos[3] = &glTFModel.dummyBlacks[3].descriptor;
+                    descriptorImageInfos[3] = &glTFModel.dummyEmissive.descriptor;
                 }
 
                 if (material.occlusionTextureIndex != -1)
@@ -1056,7 +1031,7 @@ public:
                 }
                 else
                 {
-                    descriptorImageInfos[4] = &glTFModel.dummyBlacks[4].descriptor;
+                    descriptorImageInfos[4] = &glTFModel.dummyAO.descriptor;
                 }
 
                 std::vector<VkWriteDescriptorSet> writeDescriptorSets;
@@ -1149,13 +1124,8 @@ public:
     {
         ubo.values.projection = camera.matrices.perspective;
         ubo.values.view = camera.matrices.view;
-        ubo.values.cameraPos = camera.position;
-        // shaderData.values.viewPos = camera.viewPos;
+        ubo.values.viewPos = camera.viewPos;
         memcpy(ubo.buffer.mapped, &ubo.values, sizeof(ubo.values));
-    }
-
-    void pushConstants()
-    {
     }
 
     void prepare()
@@ -1165,7 +1135,6 @@ public:
         prepareUniformBuffers();
         setupDescriptors();
         preparePipelines();
-        glTFModel.updateMaterial(glm::vec3(albedo[0], albedo[1], albedo[2]), roughness, metallic);
         prepared = true;
     }
 
@@ -1173,17 +1142,11 @@ public:
     {
         buildCommandBuffers();
         renderFrame();
-        if (camera.updated)
-        {
-            updateUniformBuffers();
-        }
+        updateUniformBuffers();
         glTFModel.updateAnimation(frameTimer);
     }
-
-    virtual void viewChanged()
-    {
-        updateUniformBuffers();
-    }
+    float* lightColor = new float[3] { 1, 1, 1 };
+    float* emissiveFactor = new float[3] { 1, 1, 1 };
 
     virtual void OnUpdateUIOverlay(vks::UIOverlay* overlay)
     {
@@ -1193,9 +1156,16 @@ public:
             {
                 buildCommandBuffers();
             }
-            if (overlay->colorPicker("Albedo", albedo) || overlay->sliderFloat("Roughness", &roughness, 0, 1) || overlay->sliderFloat("Metallic", &metallic, 0, 1))
+            if (overlay->colorPicker("LightColor", lightColor))
             {
-                glTFModel.updateMaterial(glm::vec3(albedo[0], albedo[1], albedo[2]), roughness, metallic);
+                glTFModel.constansData.lightColor = glm::make_vec3(lightColor);
+            }
+            overlay->sliderFloat("LightIntensity", &glTFModel.constansData.lightIntensity, 0, 10);
+            overlay->sliderFloat("Roughness", &glTFModel.constansData.roughnessFactor, 0, 1);
+            overlay->sliderFloat("Metallic", &glTFModel.constansData.metallicFactor, 0, 1);
+            if (overlay->sliderFloat("Emissive", emissiveFactor, 0, 10))
+            {
+                glTFModel.constansData.emissiveFactor = glm::make_vec3(emissiveFactor);
             }
         }
     }

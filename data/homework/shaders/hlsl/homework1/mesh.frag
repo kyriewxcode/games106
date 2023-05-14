@@ -1,103 +1,87 @@
-Texture2D textureColorMap : register(t0, space1);
-Texture2D textureMetallicRoughness : register(t1, space1);
-Texture2D textureNormalMap : register(t2, space1);
-Texture2D textureEmissive : register(t3, space1);
-Texture2D textureOcclusion : register(t4, space1);
+#include "meshInput.hlsl"
 
-SamplerState samplerColorMap : register(s0, space1);
-SamplerState samplerMetallicRoughness : register(s1, space1);
-SamplerState samplerNormalMap : register(s2, space1);
-SamplerState samplerEmissive : register(s3, space1);
-SamplerState samplerOcclusion : register(s4, space1);
-
-struct UBO
+float3 calculateNormal(VSOutput input)
 {
-    float4x4 projection; // 投影矩阵
-    float4x4 view;       // 视图矩阵
-    float3 lightColor;
-    float lightIntensity;
-    float4 lightPos;     // 灯光位置
-    float3 cameraPos;    // 相机位置
-};
-cbuffer ubo : register(b0) { UBO ubo; }
-
-struct PushConsts
-{
-    float4x4 model;  // 模型矩阵
-    float3 albedo;   // 基本颜色
-    float roughness; // 粗糙度
-    float metallic;  // 金属度
-};
-[[vk::push_constant]] PushConsts material;
-
-static const float PI = 3.14159265359;
-
-struct VSOutput
-{
-    [[vk::location(0)]] float3 WorldPos : POSITION;
-    [[vk::location(1)]] float3 Normal : NORMAL0;
-    [[vk::location(2)]] float2 UV : TEXCOORD0;
-};
-
-float2 LightingFuncGGX_FV(float dotLH, float roughness)
-{
-    float alpha = roughness * roughness;
-
-    // F
-    float F_a, F_b;
-    float dotLH5 = pow(1.0f - dotLH, 5);
-    F_a = 1.0f;
-    F_b = dotLH5;
-
-    // V
-    float vis;
-    float k = alpha / 2.0f;
-    float k2 = k * k;
-    float invK2 = 1.0f - k2;
-    vis = rcp(dotLH * dotLH * invK2 + k2);
-
-    return float2(F_a * vis, F_b * vis);
-}
-
-float LightingFuncGGX_D(float dotNH, float roughness)
-{
-    float alpha = roughness * roughness;
-    float alphaSqr = alpha * alpha;
-    float pi = 3.14159f;
-    float denom = dotNH * dotNH * (alphaSqr - 1.0) + 1.0f;
-
-    float D = alphaSqr / (pi * denom * denom);
-    return D;
-}
-
-float LightingFuncGGX(float3 N, float3 V, float3 L, float roughness, float F0)
-{
-    float3 H = normalize(V + L);
-
-    float dotNL = saturate(dot(N, L));
-    float dotLH = saturate(dot(L, H));
-    float dotNH = saturate(dot(N, H));
-
-    float D = LightingFuncGGX_D(dotNH, roughness);
-    float2 FV_helper = LightingFuncGGX_FV(dotLH, roughness);
-    float FV = F0 * FV_helper.x + (1.0f - F0) * FV_helper.y;
-    float specular = dotNL * D * FV;
-
-    return specular;
-}
-
-float4 main(VSOutput input) : SV_TARGET
-{
-    float3 textureColor = textureOcclusion.Sample(samplerOcclusion, input.UV).rgb;
+    float3 tangentNormal = textureNormalMap.Sample(samplerNormalMap, input.UV).xyz * 2.0 - 1.0;
 
     float3 N = normalize(input.Normal);
-    float3 V = normalize(ubo.cameraPos - input.WorldPos);
-    float3 L = normalize(ubo.lightPos.xyz - input.WorldPos);
-    float3 specular = LightingFuncGGX(N, V, L, material.roughness, lerp(0.04, 1, material.metallic));
+    float3 T = normalize(input.Tangent);
+    float3 B = normalize(cross(N, T));
+    float3x3 TBN = transpose(float3x3(T, B, N));
 
-    float3 ambient = textureColor * float3(0.1, 0.1, 0.1) * material.albedo;
-    float3 color = ambient + specular;
-    color = pow(color, float3(0.4545, 0.4545, 0.4545));
+    return normalize(mul(TBN, tangentNormal));
+}
 
-    return float4(textureColor, 1.0f);
+// Walter et al. 2007, "Microfacet Models for Refraction through Rough Surfaces"
+float D_GGX(float roughness, float NoH)
+{
+    float oneMinusNoHSquared = 1.0 - NoH * NoH;
+    float a = NoH * roughness;
+    float k = roughness / (oneMinusNoHSquared + a * a);
+    float d = k * k * (1.0 / PI);
+    return d;
+}
+
+// Smith-GGX: [Smith 1967, "Geometrical shadowing of a random rough surface"]
+float G_Smith_GGX(float roughness, float NoV, float NoL )
+{
+    float a2 = roughness * roughness;
+    float G_SmithV = NoV + sqrt( NoV * (NoV - NoV * a2) + a2 );
+    float G_SmithL = NoL + sqrt( NoL * (NoL - NoL * a2) + a2 );
+    return 0.5 / (G_SmithV + G_SmithL);
+}
+
+// Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"
+float3 F_Schlick(const float3 f0, float VoH) {
+    return f0 + (1.0f - f0) * pow(1.0 - VoH, 5.0f);
+}
+
+float3 Tonemap_ACES(const float3 c) {
+    // Narkowicz 2015, "ACES Filmic Tone Mapping Curve"
+    // const float a = 2.51;
+    // const float b = 0.03;
+    // const float c = 2.43;
+    // const float d = 0.59;
+    // const float e = 0.14;
+    // return saturate((x*(a*x+b))/(x*(c*x+d)+e));
+
+    //ACES RRT/ODT curve fit courtesy of Stephen Hill
+	float3 a = c * (c + 0.0245786) - 0.000090537;
+	float3 b = c * (0.983729 * c + 0.4329510) + 0.238081;
+	return a / b;
+}
+float4 main(VSOutput input) : SV_TARGET
+{
+    float3 albedo = textureColorMap.Sample(samplerColorMap, input.UV).rgb * material.baseColorFactor;
+    float3 ambientAO = textureOcclusion.Sample(samplerOcclusion, input.UV).rrr;
+    float3 emmisive = textureEmissive.Sample(samplerEmissive, input.UV).rgb * material.emissiveFactor;
+    float2 metallicRoughness = textureMetallicRoughness.Sample(samplerMetallicRoughness, input.UV).rg;
+
+    float roughness = metallicRoughness.g * material.roughnessFactor;
+    float metallic = metallicRoughness.r * material.metallicFactor;
+    float3 light = material.lightColor * material.lightIntensity;
+    float3 f0 = 0.04 * (1.0 - metallic) + albedo.rgb * metallic;
+
+    float3 n = calculateNormal(input);
+    float3 l = normalize(ubo.lightPos.xyz - input.WorldPos);
+    float3 v = normalize(ubo.viewPos.xyz - input.WorldPos);
+    float3 h = normalize(v + l);
+    float NoV = abs(dot(n, v)) + 1e-5;
+    float NoL = saturate(dot(n, l));
+    float NoH = saturate(dot(n, h));
+    float LoH = saturate(dot(l, h));
+
+    float D = D_GGX(roughness, NoH);
+    float G = G_Smith_GGX(roughness, NoV, NoL);
+    float3 F = F_Schlick(f0, LoH);
+    float3 specular = D * G * F * light;
+
+    float3 diffuse = albedo * ambientAO * saturate(dot(n, l)) * light;
+    
+    float3 color = emmisive + diffuse + specular;
+
+    color = Tonemap_ACES(color);
+    color = pow(color, 1.0f / 2.2f);
+
+    return float4(color, 1.0f);
 }
