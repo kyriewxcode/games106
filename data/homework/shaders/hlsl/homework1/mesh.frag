@@ -88,7 +88,7 @@ float LightingFuncGGX(float3 N, float3 V, float3 L, float roughness, float F0)
 
 float4 main(VSOutput input) : SV_TARGET
 {
-    float3 textureColor = textureColorMap.Sample(samplerColorMap, input.UV).rgb;
+    float3 textureColor = textureOcclusion.Sample(samplerOcclusion, input.UV).rgb;
 
     float3 N = normalize(input.Normal);
     float3 V = normalize(ubo.cameraPos - input.WorldPos);

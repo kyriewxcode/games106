@@ -195,6 +195,7 @@ public:
     std::vector<Texture> textures;
     std::vector<Material> materials;
     std::vector<Node*> nodes;
+    std::vector<vks::Texture2D> dummyBlacks;
 
     std::vector<Animation> animations;
     uint32_t activeAnimation = 0;
@@ -217,6 +218,13 @@ public:
             vkDestroySampler(vulkanDevice->logicalDevice, image.texture.sampler, nullptr);
             vkFreeMemory(vulkanDevice->logicalDevice, image.texture.deviceMemory, nullptr);
         }
+        for (vks::Texture2D dummyBlack : dummyBlacks)
+        {
+            vkDestroyImageView(vulkanDevice->logicalDevice, dummyBlack.view, nullptr);
+            vkDestroyImage(vulkanDevice->logicalDevice, dummyBlack.image, nullptr);
+            vkDestroySampler(vulkanDevice->logicalDevice, dummyBlack.sampler, nullptr);
+            vkFreeMemory(vulkanDevice->logicalDevice, dummyBlack.deviceMemory, nullptr);
+        }
     }
 
     /*
@@ -224,16 +232,6 @@ public:
 
         The following functions take a glTF input model loaded via tinyglTF and convert all required data into our own structure
     */
-
-    vks::Texture2D getDummyBlack()
-    {
-        vks::Texture2D dummyBlack;
-        std::vector<unsigned char> buffer(1 * 1 * 4, 0);
-        VkDeviceSize bufferSize = static_cast<VkDeviceSize>(buffer.size());
-        dummyBlack.fromBuffer(buffer.data(), bufferSize, VK_FORMAT_R8G8B8A8_UNORM, 1, 1, vulkanDevice, copyQueue);
-        return dummyBlack;
-    }
-
     void loadImages(tinygltf::Model& input)
     {
         // Images can be stored inside the glTF (which is the case for the sample model), so instead of directly
@@ -301,6 +299,14 @@ public:
             materials[i].normalTextureIndex = glTFMaterial.normalTexture.index;
             materials[i].emissiveTextureIndex = glTFMaterial.emissiveTexture.index;
             materials[i].occlusionTextureIndex = glTFMaterial.occlusionTexture.index;
+        }
+        for (size_t i = 0; i < 5; i++)
+        {
+            vks::Texture2D dummyBlack;
+            std::vector<unsigned char> buffer(1 * 1 * 4, 0);
+            VkDeviceSize bufferSize = static_cast<VkDeviceSize>(buffer.size());
+            dummyBlack.fromBuffer(buffer.data(), bufferSize, VK_FORMAT_R8G8B8A8_UNORM, 1, 1, vulkanDevice, copyQueue);
+            dummyBlacks.push_back(dummyBlack);
         }
     }
 
@@ -1007,14 +1013,14 @@ public:
             for (auto& material : glTFModel.materials)
             {
                 VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &material.descriptorSet));
-                std::array<VkDescriptorImageInfo*, 2> descriptorImageInfos {};
+                std::array<VkDescriptorImageInfo*, 5> descriptorImageInfos { nullptr };
                 if (material.baseColorTextureIndex != -1)
                 {
                     descriptorImageInfos[0] = &glTFModel.images[material.baseColorTextureIndex].texture.descriptor;
                 }
                 else
                 {
-                    // descriptorImageInfos[0] = &glTFModel.dummyBlacks[0].descriptor;
+                    descriptorImageInfos[0] = &glTFModel.dummyBlacks[0].descriptor;
                 }
 
                 if (material.metallicRoughnessTextureIndex != -1)
@@ -1023,7 +1029,7 @@ public:
                 }
                 else
                 {
-                    // descriptorImageInfos[1] = &glTFModel.dummyBlacks[1].descriptor;
+                    descriptorImageInfos[1] = &glTFModel.dummyBlacks[1].descriptor;
                 }
 
                 if (material.normalTextureIndex != -1)
@@ -1032,7 +1038,7 @@ public:
                 }
                 else
                 {
-                    // descriptorImageInfos[2] = &glTFModel.dummyBlacks[2].descriptor;
+                    descriptorImageInfos[2] = &glTFModel.dummyBlacks[2].descriptor;
                 }
 
                 if (material.emissiveTextureIndex != -1)
@@ -1041,7 +1047,7 @@ public:
                 }
                 else
                 {
-                    // descriptorImageInfos[3] = &glTFModel.dummyBlacks[3].descriptor;
+                    descriptorImageInfos[3] = &glTFModel.dummyBlacks[3].descriptor;
                 }
 
                 if (material.occlusionTextureIndex != -1)
@@ -1050,7 +1056,7 @@ public:
                 }
                 else
                 {
-                    // descriptorImageInfos[4] = &glTFModel.dummyBlacks[4].descriptor;
+                    descriptorImageInfos[4] = &glTFModel.dummyBlacks[4].descriptor;
                 }
 
                 std::vector<VkWriteDescriptorSet> writeDescriptorSets;
