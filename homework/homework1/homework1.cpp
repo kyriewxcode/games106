@@ -665,19 +665,19 @@ public:
                 currentParent = currentParent->parent;
             }
             node->constansData.modelMatrix = nodeMatrix;
+            node->constansData.baseColorFactor = constansData.baseColorFactor;
+            node->constansData.emissiveFactor = constansData.emissiveFactor;
+            node->constansData.roughnessFactor = constansData.roughnessFactor;
+            node->constansData.metallicFactor = constansData.metallicFactor;
+            node->constansData.lightColor = constansData.lightColor;
+            node->constansData.lightIntensity = constansData.lightIntensity;
+            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ConstansData), &node->constansData);
             // Pass the final matrix to the vertex shader using push constants
             for (VulkanglTFModel::Primitive& primitive : node->mesh.primitives)
             {
                 if (primitive.indexCount > 0)
                 {
                     Material& material = materials[primitive.materialIndex];
-                    node->constansData.baseColorFactor = constansData.baseColorFactor;
-                    node->constansData.emissiveFactor = constansData.emissiveFactor;
-                    node->constansData.roughnessFactor = constansData.roughnessFactor;
-                    node->constansData.metallicFactor = constansData.metallicFactor;
-                    node->constansData.lightColor = constansData.lightColor;
-                    node->constansData.lightIntensity = constansData.lightIntensity;
-                    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ConstansData), &node->constansData);
                     // Get the texture index for this primitive
                     // VulkanglTFModel::Texture texture = textures[materials[primitive.materialIndex].baseColorTextureIndex];
                     // Bind the descriptor for the current primitive's texture
