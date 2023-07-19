@@ -75,6 +75,10 @@ float3 Tonemap_ACES(const float3 c) {
 
 reference论文在: [data/Visually Lossless Content and Motion Adaptive Shading in Games.pdf](./data/Visually%20Lossless%20Content%20and%20Motion%20Adaptive%20Shading%20in%20Games.pdf)
 
-### homework5
-homework5 比较独立，作业的框架代码以及作业要求：[GAMES106-HW5](https://github.com/Chaphlagical/GAMES106-HW5)
- 
+### homework3
+homework3 比较独立，作业的框架代码以及作业要求：[GAMES106-HW5](https://github.com/Chaphlagical/GAMES106-HW5)
+
+### homework4
+扩展 homework/homework4 (来自example/texturecubemap) 中的示例。
+作业要求：
+1. 修改函数```void loadCubemap(std::string filename, VkFormat format, bool forceLinearTiling)```。示例中的```textures/cubemap_yokohama_rgba.ktx```是一张RGBA8的ktx图，使用任意平台支持的压缩格式压缩，比如BC7，ASTC，或者ETC2等等之类的压缩格式。把这张RGBA格式的图片压缩成压缩纹理。
